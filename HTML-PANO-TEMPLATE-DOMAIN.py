@@ -15,8 +15,10 @@ from PIL import Image, ExifTags
 from openpyxl import Workbook
 from decimal import Decimal, getcontext
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 getcontext().prec = 28  # Set high precision for Decimal arithmetic
-load_dotenv()
+env_file=Path("Z:/Survey/UT/_GabeA/PanoSandbox/.env")
+load_dotenv(dotenv_path=env_file)
 FTP_SERVER = os.getenv("FTP_SERVER")
 FTP_USERNAME = os.getenv("FTP_USERNAME")
 FTP_PASSWORD = os.getenv("FTP_PASSWORD")
@@ -200,7 +202,6 @@ def compress_image(input_image_path, remote_dir, quality=1, optimize=True):
 
         # Open and process the image.
         with Image.open(input_image_path) as img:
-            print(f"Original image mode: {img.mode}")
             try:
                 # Force conversion to RGB mode.
                 img = img.convert("RGB")
