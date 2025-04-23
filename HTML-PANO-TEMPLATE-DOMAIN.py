@@ -5,6 +5,7 @@ import piexif
 import ftplib
 import csv
 import threading
+import time
 from dotenv import load_dotenv
 from tkinter import filedialog, messagebox, ttk, simpledialog
 from tkinter.simpledialog import askstring
@@ -15,10 +16,12 @@ from PIL import Image, ExifTags
 from openpyxl import Workbook
 from decimal import Decimal, getcontext
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 import smtplib
 from email.message import EmailMessage
-getcontext().prec = 28  # Set high precision for Decimal arithmetic
+
+# -----------------------------------------------
+# Gets .env file and extracts credentials
+# -----------------------------------------------
 env_file=Path(r"Z:\Survey\UT\_GabeA\PanoSandbox\.env")
 load_dotenv(dotenv_path=env_file)
 FTP_SERVER = os.getenv("FTP_SERVER")
@@ -29,7 +32,9 @@ EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
-
+# -----------------------------------------------
+# Probe domain for current available connections
+# -----------------------------------------------
 def probe_ftp_max_threads(max_test=6):
     success_count = 0
     lock = threading.Lock()
@@ -98,32 +103,35 @@ def choose_folder():
         # Compile the project data into HTML templates.
         proj_compile(client_name, folder_path, images_dict, new_remote_dir, project_name, employee_name)
 
+# ------------------------------------------------------
+# Ask user for their name that will appear in auto email
+# ------------------------------------------------------
 
 def ask_user_name(possible_names, root):
     result = {"name": None}
-
+    # Name data asignment function
     def submit_name():
         selected = name_var.get()
         custom = custom_entry.get().strip()
         result["name"] = custom if custom else selected
         popup.destroy()
-
+    # Tkinter windo logic
     popup = tk.Toplevel(root)
     popup.title("Select Your Name")
     popup.geometry("300x200")
     popup.grab_set()  # Makes this window modal (blocks interaction with others)
 
     tk.Label(popup, text="Choose your name:", font=("Arial", 12)).pack(pady=5)
-
+    # Provides dropdown that iterates over names list possible_names
     name_var = tk.StringVar()
     name_combo = ttk.Combobox(popup, textvariable=name_var, values=possible_names)
     name_combo.pack(pady=5)
     name_combo.set(possible_names[0])
-
+    # Second choice that allows custom name entry
     tk.Label(popup, text="Or enter your name:", font=("Arial", 10)).pack(pady=5)
     custom_entry = tk.Entry(popup)
     custom_entry.pack(pady=5)
-
+    # Assigns name to variable
     submit_btn = tk.Button(popup, text="Submit", command=submit_name)
     submit_btn.pack(pady=10)
 
@@ -138,7 +146,9 @@ def ask_user_name(possible_names, root):
 def make_domain_path(client_name, project_name, dt):
     new_dir = "/auto/" + client_name + "/" + project_name + "/" + dt
     return new_dir
-
+# ---------------------------------------------------------------------------
+# Constructs a remote directory path that is readable to local paths
+# ---------------------------------------------------------------------------
 def make_remote_domain_path(client_name, project_name, dt):
     new_dir = client_name + "/" + project_name + "/" + dt
     return new_dir
@@ -147,7 +157,7 @@ def make_remote_domain_path(client_name, project_name, dt):
 # Walks through the given folder and extracts JPEG image metadata using Pillow.
 # Returns a dictionary mapping file names to their full path, formatted date, and base name.
 # ---------------------------------------------------------------------------
-def list_files_and_dirs(folder_path, remote_dir):
+def list_files_and_dirs(folder_path):
     image_files = {}
     file_count = 0
 
@@ -199,10 +209,7 @@ def list_files_and_dirs(folder_path, remote_dir):
 # ---------------------------------------------------------------------------
 # Compresses the image and saves it to a new directory on Z: drive based on client, project, and date.
 # ---------------------------------------------------------------------------
-def compress_image(input_image_path, remote_dir, quality=1, optimize=True):
-    import os
-    import piexif
-    from PIL import Image
+def compress_image(input_image_path, remote_dir, quality=1):
 
     # Determine the output directory from remote_dir (expected format: "/auto/client/project/dt").
     base_output_directory = os.path.join("Z:/Survey/UT/ScriptFiles", remote_dir)
@@ -278,18 +285,12 @@ def compress_image(input_image_path, remote_dir, quality=1, optimize=True):
         print(f"Error compressing image {input_image_path}: {e}")
         return None
 
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Renames images based on their date and compresses them. Returns a dictionary of renamed images.
 # ---------------------------------------------------------------------------
 def rename_images_by_date(images_dict, remote_dir, prefix="U"):
     images_list = []
+    # Convert date strings to datetime objects and collect them
     for orig_name, info in images_dict.items():
         if info["date_time"]:
             try:
@@ -299,13 +300,13 @@ def rename_images_by_date(images_dict, remote_dir, prefix="U"):
         else:
             dt = datetime.min
         images_list.append((orig_name, info, dt))
-    
+    # Sort images chronologically
     images_list.sort(key=lambda x: x[2])
     total_images = len(images_list)
     digits = max(2, len(str(total_images)))
     
     renamed_images = {}
-    # Use all available threads (or os.cpu_count() if available)
+    # Rename files and submit compression tasks in parallel
     max_workers = os.cpu_count() or 4
     with ThreadPoolExecutor(max_workers=(os.cpu_count() or 4)) as executor:
         futures = {}
@@ -382,9 +383,9 @@ def show_compile_window(renamed_images, remote_dir, proj_compiled, employee_name
     ).pack(pady=10)
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------
 # Compiles project metadata (e.g., earliest date) and launches the next steps in processing.
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------
 def proj_compile(client_name, folder_path, images_dict, remote_dir, project_name, employee_name):
     # Gather all dates from image metadata.
     dates = []
@@ -426,12 +427,15 @@ def proj_compile(client_name, folder_path, images_dict, remote_dir, project_name
     # Rename images based on date.
     renamed_images = rename_images_by_date(images_dict, remote_dir, prefix="U")
     
-    # Export GPS and date information to a CSV file.
+    # Export GPS and date information to a CSV file, and returns the first completed link
     first_link = export_gps_and_date_to_csv(renamed_images, client_name, project_name)
 
     # Start window functions to initiate HTML upload
     show_connection_warning(renamed_images, remote_dir, proj_compiled, client_name, project_name, dt, employee_name, first_link)
 
+# ------------------------------------------------------------------------------------------
+# Renders HTML page using provided data and implements into page sourcecode
+# ------------------------------------------------------------------------------------------
 def render_template(file_name, info, proj_compiled, output_directory, template):
     # Convert the image's date string into a datetime object and reformat it.
     try:
@@ -440,7 +444,7 @@ def render_template(file_name, info, proj_compiled, output_directory, template):
         print(f"Error parsing date for {file_name}: {e}")
         dt_obj = datetime.now()
     converted_dt = dt_obj.strftime("%d-%b-%y %I:%M:%S%p")
-    
+    # Inserts unique data and image file into page
     rendered_html = template.render(
         TITLE=proj_compiled["name"],
         DESCRIPTION=proj_compiled["date_exif"],
@@ -454,13 +458,15 @@ def render_template(file_name, info, proj_compiled, output_directory, template):
     print(f"Created template: {output_filename}")
     return output_filename
 
-from pathlib import Path
-
+# ------------------------------------------------------------------------------------------
+# Renders email HTML code with relevent data, and sends email to listed reciepients
+# ------------------------------------------------------------------------------------------
 def send_html_email(project_name, client_name, date, employee_name, first_link, remote_dir):
+    # Gets template location and creates HTML page
     template_path = Path(r"Z:\Survey\UT\_GabeA\PanoSandbox\Proj\Email-Report-Template.htm")
     env = Environment(loader=FileSystemLoader(template_path.parent))
     template = env.get_template(template_path.name)
-
+    # Inserts relevent pano information into email HTML page
     html_content = template.render(
         PROJECT_NAME=str(project_name[0]) if isinstance(project_name, tuple) else project_name,
         CLIENT_NAME=str(client_name[0]) if isinstance(client_name, tuple) else client_name,
@@ -470,7 +476,7 @@ def send_html_email(project_name, client_name, date, employee_name, first_link, 
         DIRECTORY_PATH=Path(get_local_directory(remote_dir)).as_posix()
     )
 
-
+    # Sends email with provided crendentials
     msg = EmailMessage()
     msg["Subject"] = f"✅ Upload Complete - {str(project_name[0]) if isinstance(project_name, tuple) else project_name}"
     msg["From"] = EMAIL_SENDER
@@ -496,6 +502,7 @@ def send_html_email(project_name, client_name, date, employee_name, first_link, 
 # Creates HTML templates from project data and images, saving them to a remote directory on Z: drive.
 # ---------------------------------------------------------------------------
 def make_proj_template(proj_compiled, images_dict, remote_dir):
+    # Creates the final directory of pano backup files
     output_directory = os.path.join("Z:/Survey/UT/ScriptFiles", remote_dir)
   
     
@@ -533,6 +540,8 @@ def make_proj_template(proj_compiled, images_dict, remote_dir):
 # Expects a tuple of three tuples (rational format).
 # ---------------------------------------------------------------------------
 def convert_to_degrees_with_ref(value, ref):
+        # sets up precise calculation for decimal degrees conversion
+        getcontext().prec = 28  
         try:
             if isinstance(value, (list, tuple)) and len(value) == 3:
                 if isinstance(value[0], tuple):
@@ -554,39 +563,33 @@ def convert_to_degrees_with_ref(value, ref):
             return None
 
 
-# ---------------------------------------------------------------------------
-# Uploads a file via FTP to the specified remote directory.
-# ---------------------------------------------------------------------------
-def upload_file_via_ftp(file_path, remote_dir):
-    print(f"Starting upload for: {file_path}")
+def upload_file_via_ftp(file_path, remote_dir, max_retries=3, delay_base=2):
+    """
+    Upload a file to the FTP server, with optional retry support.
+    """
     if not os.path.exists(file_path):
-        print("Error: File not found at", file_path)
+        print(f"Error: File not found at {file_path}")
         return
-    try:
-        with ftplib.FTP(FTP_SERVER, timeout=30) as ftp:
-            ftp.login(FTP_USERNAME, FTP_PASSWORD)
-            ftp.cwd(remote_dir)
-            with open(file_path, 'rb') as f:
-                ftp.storbinary(f"STOR {os.path.basename(file_path)}", f)
-            print(f"Finished upload for: {file_path}")
-    except Exception as e:
-        print(f"[{threading.current_thread().name}] Error uploading {file_path}: {e}")
 
-
-def upload_file_via_ftp_with_retry(file, remote_dir, max_retries=3):
     for attempt in range(1, max_retries + 1):
         try:
-            upload_file_via_ftp(file, remote_dir)
-            print(f"Successfully uploaded {os.path.basename(file)} on attempt {attempt}")
-            return
+            print(f"Starting upload for: {file_path} (Attempt {attempt})")
+            with ftplib.FTP(FTP_SERVER, timeout=30) as ftp:
+                ftp.login(FTP_USERNAME, FTP_PASSWORD)
+                ftp.cwd(remote_dir)
+                with open(file_path, 'rb') as f:
+                    ftp.storbinary(f"STOR {os.path.basename(file_path)}", f)
+            print(f"Successfully uploaded {os.path.basename(file_path)} on attempt {attempt}")
+            return  # Success, exit the loop
         except Exception as e:
-            print(45 * ">", f"Attempt {attempt} failed for {os.path.basename(file)} with error: {e}")
+            print(f"[{threading.current_thread().name}] Attempt {attempt} failed for {file_path}: {e}")
             if attempt == max_retries:
-                print(f"Giving up on {os.path.basename(file)} after {max_retries} attempts.")
+                print(f"Giving up on {file_path} after {max_retries} attempts.")
             else:
-                sleep_time = 2 ** attempt
-                print(f"[{threading.current_thread().name}] Retrying in {sleep_time} seconds...")
+                sleep_time = delay_base ** attempt
+                print(f"Retrying in {sleep_time} seconds...")
                 time.sleep(sleep_time)
+
 
 
 # ---------------------------------------------------------------------------
@@ -755,7 +758,7 @@ def export_gps_and_date_to_csv(renamed_images, client_name, project_name):
     print("Saving CSV to:", output_file_path)
     
 
-
+    # Extracts gps Lat Long from images
     def extract_gps_data(image_path):
         try:
             with Image.open(image_path) as img:
@@ -771,7 +774,7 @@ def export_gps_and_date_to_csv(renamed_images, client_name, project_name):
         except Exception as e:
             print(f"Error extracting GPS data from {image_path}: {e}")
             return None
-
+    # Extracts date/time from images
     def extract_date_taken(image_path):
         try:
             with Image.open(image_path) as img:
@@ -787,14 +790,14 @@ def export_gps_and_date_to_csv(renamed_images, client_name, project_name):
         except Exception as e:
             print(f"Error extracting date from {image_path}: {e}")
         return None
-
+    # Sets up first_hyperlink variable
     first_hyperlink = None  
-
+    # takes all data extracted and imports into .csv format
     with open(output_file_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["Filename", "Date Taken", "GPSLatitude", "GPSLongitude", "GPSAltitude", "Hyperlink"])
         domain_path = make_domain_path(client_name, project_name, current_time)
-
+        
         for idx, (file_name, info) in enumerate(renamed_images.items()):
             base_name, _ = os.path.splitext(info["base_name"])
             html_filename = base_name + ".htm"
