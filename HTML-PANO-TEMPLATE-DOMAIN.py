@@ -6,7 +6,7 @@ import ftplib
 import csv
 import threading
 from dotenv import load_dotenv
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk, simpledialog
 from tkinter.simpledialog import askstring
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
@@ -16,12 +16,19 @@ from openpyxl import Workbook
 from decimal import Decimal, getcontext
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import smtplib
+from email.message import EmailMessage
 getcontext().prec = 28  # Set high precision for Decimal arithmetic
-env_file=Path("Z:/Survey/UT/_GabeA/PanoSandbox/.env")
+env_file=Path(r"Z:\Survey\UT\_GabeA\PanoSandbox\.env")
 load_dotenv(dotenv_path=env_file)
 FTP_SERVER = os.getenv("FTP_SERVER")
 FTP_USERNAME = os.getenv("FTP_USERNAME")
 FTP_PASSWORD = os.getenv("FTP_PASSWORD")
+EMAIL_HOST = os.getenv("EMAIL_HOST")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
+EMAIL_USER = os.getenv("EMAIL_USER")
+EMAIL_PASS = os.getenv("EMAIL_PASS")
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 
 def probe_ftp_max_threads(max_test=6):
     success_count = 0
@@ -77,6 +84,8 @@ def choose_folder():
             messagebox.showwarning("Missing Input", "Project name is required.")
             print(30 * "-", "Initialization failed: enter required input", 30 * "-")
             return
+        
+        employee_name = ask_user_name(["Allen", "Burt", "Gabe", "Kevin", "Morgan", "Nick", "Tanner"], root)
 
         # Create a date string for the project folder (e.g. "24Feb23").
         dt = datetime.now().strftime("%d%b%y")
@@ -87,9 +96,39 @@ def choose_folder():
         images_dict = list_files_and_dirs(folder_path, new_remote_dir)
         
         # Compile the project data into HTML templates.
-        proj_compile(client_name, folder_path, images_dict, new_remote_dir, project_name)
+        proj_compile(client_name, folder_path, images_dict, new_remote_dir, project_name, employee_name)
 
 
+def ask_user_name(possible_names, root):
+    result = {"name": None}
+
+    def submit_name():
+        selected = name_var.get()
+        custom = custom_entry.get().strip()
+        result["name"] = custom if custom else selected
+        popup.destroy()
+
+    popup = tk.Toplevel(root)
+    popup.title("Select Your Name")
+    popup.geometry("300x200")
+    popup.grab_set()  # Makes this window modal (blocks interaction with others)
+
+    tk.Label(popup, text="Choose your name:", font=("Arial", 12)).pack(pady=5)
+
+    name_var = tk.StringVar()
+    name_combo = ttk.Combobox(popup, textvariable=name_var, values=possible_names)
+    name_combo.pack(pady=5)
+    name_combo.set(possible_names[0])
+
+    tk.Label(popup, text="Or enter your name:", font=("Arial", 10)).pack(pady=5)
+    custom_entry = tk.Entry(popup)
+    custom_entry.pack(pady=5)
+
+    submit_btn = tk.Button(popup, text="Submit", command=submit_name)
+    submit_btn.pack(pady=10)
+
+    root.wait_window(popup)  # Wait for the popup to close
+    return result["name"]
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +347,7 @@ def rename_images_by_date(images_dict, remote_dir, prefix="U"):
 # ---------------------------------------------------------------------------
 # Warns user about starting upload with internet connection
 # ---------------------------------------------------------------------------
-def show_connection_warning(renamed_images, remote_dir, proj_compiled, client_name, project_name, dt):
+def show_connection_warning(renamed_images, remote_dir, proj_compiled, client_name, project_name, dt, employee_name, first_link):
     warn_win = tk.Toplevel(root)
     warn_win.title("Internet Connection Warning")
     warn_win.geometry("450x150")
@@ -321,13 +360,13 @@ def show_connection_warning(renamed_images, remote_dir, proj_compiled, client_na
     tk.Button(
         warn_win,
         text="I understand",
-        command=lambda: (warn_win.destroy(), show_compile_window(renamed_images, remote_dir, proj_compiled, client_name, project_name, dt))
+        command=lambda: (warn_win.destroy(), show_compile_window(renamed_images, remote_dir, proj_compiled, employee_name, first_link))
     ).pack(pady=10)
 
 # ---------------------------------------------------------------------------
 # Starts upload function upon button press
 # ---------------------------------------------------------------------------
-def show_compile_window(renamed_images, remote_dir, proj_compiled, client_name, project_name, dt):
+def show_compile_window(renamed_images, remote_dir, proj_compiled, employee_name, first_link):
     compile_win = tk.Toplevel(root)
     compile_win.title("Project Compilation")
     compile_win.geometry("450x150")
@@ -339,14 +378,14 @@ def show_compile_window(renamed_images, remote_dir, proj_compiled, client_name, 
     tk.Button(
         compile_win,
         text="Yes!",
-        command=lambda: (start_uploads(renamed_images, remote_dir, proj_compiled), compile_win.destroy())
+        command=lambda: (start_uploads(renamed_images, remote_dir, proj_compiled, employee_name, first_link), compile_win.destroy())
     ).pack(pady=10)
 
 
 # ---------------------------------------------------------------------------
 # Compiles project metadata (e.g., earliest date) and launches the next steps in processing.
 # ---------------------------------------------------------------------------
-def proj_compile(client_name, folder_path, images_dict, remote_dir, project_name):
+def proj_compile(client_name, folder_path, images_dict, remote_dir, project_name, employee_name):
     # Gather all dates from image metadata.
     dates = []
     for info in images_dict.values():
@@ -372,7 +411,8 @@ def proj_compile(client_name, folder_path, images_dict, remote_dir, project_name
     proj_compiled = {
         "date_exif": exif_date_str,
         "name": client_name,
-        "folder": folder_path
+        "folder": folder_path,
+        "proj_name": project_name
     }
     
     print("...Project compiled")
@@ -387,10 +427,10 @@ def proj_compile(client_name, folder_path, images_dict, remote_dir, project_name
     renamed_images = rename_images_by_date(images_dict, remote_dir, prefix="U")
     
     # Export GPS and date information to a CSV file.
-    export_gps_and_date_to_csv(renamed_images, client_name, project_name)
+    first_link = export_gps_and_date_to_csv(renamed_images, client_name, project_name)
 
     # Start window functions to initiate HTML upload
-    show_connection_warning(renamed_images, remote_dir, proj_compiled, client_name, project_name, dt)
+    show_connection_warning(renamed_images, remote_dir, proj_compiled, client_name, project_name, dt, employee_name, first_link)
 
 def render_template(file_name, info, proj_compiled, output_directory, template):
     # Convert the image's date string into a datetime object and reformat it.
@@ -413,6 +453,44 @@ def render_template(file_name, info, proj_compiled, output_directory, template):
         f.write(rendered_html)
     print(f"Created template: {output_filename}")
     return output_filename
+
+from pathlib import Path
+
+def send_html_email(project_name, client_name, date, employee_name, first_link, remote_dir):
+    template_path = Path(r"Z:\Survey\UT\_GabeA\PanoSandbox\Proj\Email-Report-Template.htm")
+    env = Environment(loader=FileSystemLoader(template_path.parent))
+    template = env.get_template(template_path.name)
+
+    html_content = template.render(
+        PROJECT_NAME=str(project_name[0]) if isinstance(project_name, tuple) else project_name,
+        CLIENT_NAME=str(client_name[0]) if isinstance(client_name, tuple) else client_name,
+        UPLOAD_TIME=str(date[0]) if isinstance(date, tuple) else date,
+        EMPLOYEE=str(employee_name[0]) if isinstance(employee_name, tuple) else employee_name,
+        PANO_LINK=str(first_link[0]) if isinstance(first_link, tuple) else first_link,
+        DIRECTORY_PATH=Path(get_local_directory(remote_dir)).as_posix()
+    )
+
+
+    msg = EmailMessage()
+    msg["Subject"] = f"✅ Upload Complete - {str(project_name[0]) if isinstance(project_name, tuple) else project_name}"
+    msg["From"] = EMAIL_SENDER
+    msg["To"] = ",".join([""
+    "gabe.alley@sunrise-eng.com",
+    "kdawson@sunrise-eng.com"
+   ])
+    msg.set_content("Your upload is complete.")
+    msg.add_alternative(html_content, subtype="html")
+
+    try:
+        with smtplib.SMTP(EMAIL_HOST, 587) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            smtp.login(EMAIL_USER, "Sunrise2019")
+            smtp.send_message(msg)
+            print(">>Email successfully sent!<<")
+    except Exception as e:
+            print("❌ Failed to send email via iPage:", e)
 
 # ---------------------------------------------------------------------------
 # Creates HTML templates from project data and images, saving them to a remote directory on Z: drive.
@@ -614,17 +692,22 @@ def extract_date_taken(image_path):
 # ---------------------------------------------------------------------------
 # Starts the upload process (both HTML templates and images) in a background thread.
 # ---------------------------------------------------------------------------
-def start_uploads(renamed_images, remote_dir, proj_compiled):
+def start_uploads(renamed_images, remote_dir, proj_compiled, employee_name, first_link):
 
     def run_uploads():
         html_files = make_proj_template(proj_compiled, renamed_images, remote_dir)
         upload_html_templates_concurrently(html_files, remote_dir)
         upload_images_concurrently(renamed_images, remote_dir)
-        show_upload_complete_window(remote_dir)
+        show_upload_complete_window(remote_dir, employee_name, proj_compiled, first_link)
 
     threading.Thread(target=run_uploads, daemon=True).start()
 
-def show_upload_complete_window(remote_dir):
+def show_upload_complete_window(remote_dir, employee_name, proj_compiled, first_link):
+
+    CLIENT_NAME=proj_compiled["name"],
+    PROJ_NAME=proj_compiled["proj_name"],
+    DATE=datetime.now().strftime("%Y-%m-%d %I:%M %p")
+    send_html_email(PROJ_NAME, CLIENT_NAME, DATE, employee_name, first_link, remote_dir)
     # Determine the local directory from remote_dir.
     local_dir = get_local_directory(remote_dir)
     
@@ -705,18 +788,24 @@ def export_gps_and_date_to_csv(renamed_images, client_name, project_name):
             print(f"Error extracting date from {image_path}: {e}")
         return None
 
+    first_hyperlink = None  
+
     with open(output_file_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["Filename", "Date Taken", "GPSLatitude", "GPSLongitude", "GPSAltitude", "Hyperlink"])
         domain_path = make_domain_path(client_name, project_name, current_time)
-        for file_name, info in renamed_images.items():
-            # Use the renamed base name.
+
+        for idx, (file_name, info) in enumerate(renamed_images.items()):
             base_name, _ = os.path.splitext(info["base_name"])
             html_filename = base_name + ".htm"
             hyperlink = "https://www.seihds.com" + domain_path + "/" + html_filename
-            # Use the stored date_time or extract it if missing.
+
+            if idx == 0:
+                first_hyperlink = hyperlink  
+
             date_taken = info.get("date_time") or extract_date_taken(info["full_path"])
             gps_data = extract_gps_data(info["full_path"])
+
             if gps_data:
                 lat_raw = gps_data.get("GPSLatitude")
                 lat_ref = gps_data.get("GPSLatitudeRef")
@@ -729,8 +818,10 @@ def export_gps_and_date_to_csv(renamed_images, client_name, project_name):
                 alt = convert_to_degrees_with_ref(alt_raw, alt_ref) if alt_raw and alt_ref else None
             else:
                 lat, lon, alt = (None, None, None)
+
             writer.writerow([info["base_name"], date_taken, lat, lon, alt, hyperlink])
     print("CSV file saved as", output_file_path)
+    return first_hyperlink
 
 
 # ---------------------------------------------------------------------------
@@ -741,7 +832,7 @@ root.geometry("600x400")
 root.title("Pano image process")
 # Warning text above the folder prompt.
 tk.Label(root, 
-         text="ENSURE YOU HAVE GONE THROUGH ALL PANO PHOTOS\nAND DELETED UNWANTED AND DUPLICATE PANOS",
+         text="ENSURE YOU HAVE GONE THROUGH ALL PANO PHOTOS\nAND DELETED UNWANTED OR DUPLICATE PANOS",
          font=("Georgia", 12, "bold"),
          fg="red").pack(pady=10)
 
