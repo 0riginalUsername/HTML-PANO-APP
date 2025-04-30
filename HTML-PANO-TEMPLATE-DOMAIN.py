@@ -98,7 +98,7 @@ def choose_folder():
         # Build the remote directory path.
         new_remote_dir = make_remote_domain_path(client_name, project_name, dt)
         # Process the selected folder to extract image metadata.
-        images_dict = list_files_and_dirs(folder_path, new_remote_dir)
+        images_dict = list_files_and_dirs(folder_path)
         
         # Compile the project data into HTML templates.
         proj_compile(client_name, folder_path, images_dict, new_remote_dir, project_name, employee_name)
@@ -209,7 +209,7 @@ def list_files_and_dirs(folder_path):
 # ---------------------------------------------------------------------------
 # Compresses the image and saves it to a new directory on Z: drive based on client, project, and date.
 # ---------------------------------------------------------------------------
-def compress_image(input_image_path, remote_dir, quality=1):
+def compress_image(input_image_path, remote_dir, quality=30, max_width=8192, max_height=4096):
 
     # Determine the output directory from remote_dir (expected format: "/auto/client/project/dt").
     base_output_directory = os.path.join("Z:/Survey/UT/ScriptFiles", remote_dir)
@@ -248,6 +248,7 @@ def compress_image(input_image_path, remote_dir, quality=1):
 
         # Open and process the image.
         with Image.open(input_image_path) as img:
+            img.thumbnail((max_width, max_height))
             try:
                 # Force conversion to RGB mode.
                 img = img.convert("RGB")
@@ -563,7 +564,7 @@ def convert_to_degrees_with_ref(value, ref):
             return None
 
 
-def upload_file_via_ftp(file_path, remote_dir, max_retries=3, delay_base=2):
+def upload_file_via_ftp_with_retry(file_path, remote_dir, max_retries=3, delay_base=2):
     """
     Upload a file to the FTP server, with optional retry support.
     """
