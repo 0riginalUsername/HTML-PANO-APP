@@ -22,7 +22,7 @@ from email.message import EmailMessage
 # -----------------------------------------------
 # Gets .env file and extracts credentials
 # -----------------------------------------------
-env_file=Path(r"Z:\Survey\UT\_GabeA\PanoSandbox\.env")
+env_file=Path(r"Z:\Shared\Survey\UT\_GabeA\PanoSandbox\.env")
 load_dotenv(dotenv_path=env_file)
 FTP_SERVER = os.getenv("FTP_SERVER")
 FTP_USERNAME = os.getenv("FTP_USERNAME")
@@ -464,7 +464,7 @@ def render_template(file_name, info, proj_compiled, output_directory, template):
 # ------------------------------------------------------------------------------------------
 def send_html_email(project_name, client_name, date, employee_name, first_link, remote_dir):
     # Gets template location and creates HTML page
-    template_path = Path(r"Z:\Survey\UT\_GabeA\PanoSandbox\Proj\Email-Report-Template.htm")
+    template_path = Path(r"Z:\Shared\Survey\UT\_GabeA\PanoSandbox\Proj\Email-Report-Template.htm")
     env = Environment(loader=FileSystemLoader(template_path.parent))
     template = env.get_template(template_path.name)
     # Inserts relevent pano information into email HTML page
@@ -512,7 +512,7 @@ def make_proj_template(proj_compiled, images_dict, remote_dir):
     print("Output directory created:", output_directory)
     
     # Load the HTML template.
-    env = Environment(loader=FileSystemLoader(r"Z:\Survey\UT\_GabeA\PanoSandbox\Proj"))
+    env = Environment(loader=FileSystemLoader(r"Z:\Shared\Survey\UT\_GabeA\PanoSandbox\Proj"))
     try:
         template = env.get_template("Pano-Template.htm")
     except Exception as e:
