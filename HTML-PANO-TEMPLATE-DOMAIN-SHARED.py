@@ -212,7 +212,7 @@ def list_files_and_dirs(folder_path):
 def compress_image(input_image_path, remote_dir, quality=30, max_width=8192, max_height=4096):
 
     # Determine the output directory from remote_dir (expected format: "/auto/client/project/dt").
-    base_output_directory = os.path.join("Z:/Survey/UT/ScriptFiles", remote_dir)
+    base_output_directory = os.path.join("Z:/Shared/Survey/UT/Scriptfiles", remote_dir)
     compressed_dir = os.path.join(base_output_directory, "Compressed")
     os.makedirs(compressed_dir, exist_ok=True)
 
@@ -436,7 +436,7 @@ def proj_compile(client_name, folder_path, images_dict, remote_dir, project_name
 
 # ------------------------------------------------------------------------------------------
 # Renders HTML page using provided data and implements into page sourcecode
-# ------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------Shared/Survey/UT/Scriptfiles
 def render_template(file_name, info, proj_compiled, output_directory, template):
     # Convert the image's date string into a datetime object and reformat it.
     try:
@@ -504,7 +504,7 @@ def send_html_email(project_name, client_name, date, employee_name, first_link, 
 # ---------------------------------------------------------------------------
 def make_proj_template(proj_compiled, images_dict, remote_dir):
     # Creates the final directory of pano backup files
-    output_directory = os.path.join("Z:/Survey/UT/ScriptFiles", remote_dir)
+    output_directory = os.path.join("Z:/Shared/Survey/UT/Scriptfiles", remote_dir)
   
     
     # Create the output directory if it doesn't exist.
@@ -653,7 +653,7 @@ def upload_html_templates_concurrently(html_files, remote_dir):
 
 # Helper function to get the local directory based on remote_dir.
 def get_local_directory(remote_dir):
-    local_dir = os.path.join("Z:/Survey/UT/ScriptFiles", remote_dir)
+    local_dir = os.path.join("Z:/Shared/Survey/UT/Scriptfiles", remote_dir)
     return local_dir
 
 
@@ -751,7 +751,7 @@ def export_gps_and_date_to_csv(renamed_images, client_name, project_name):
     output_csv = f"{current_time}_{client_name}_{project_name}.csv"
 
     # Build the output directory on Z: drive including the date folder.
-    output_directory = os.path.join("Z:/Survey/UT/ScriptFiles", client_name, project_name, current_time)
+    output_directory = os.path.join("Z:/Shared/Survey/UT/Scriptfiles", client_name, project_name, current_time)
     os.makedirs(output_directory, exist_ok=True)
     
     # Build the full path to the CSV file.
